@@ -116,7 +116,6 @@ def main():
     listener.start()
 
     tray_icon = pystray.Icon("voice", make_icon(), "语音输入", menu=pystray.Menu(
-        pystray.MenuItem("加载/卸载模型", toggle_model),
         pystray.MenuItem("退出", quit_app),
     ))
     print(f"语音输入已启动，按住 {hotkey} 录音")

@@ -40,8 +40,11 @@ def unload():
 
 def transcribe_local(wav_bytes, cfg):
     model = _get_model(cfg)
-    lang = cfg["stt"]["local"].get("language", "zh")
-    segments, _ = model.transcribe(io.BytesIO(wav_bytes), language=lang)
+    local = cfg["stt"]["local"]
+    lang = local.get("language", "zh")
+    words = [w for w in local.get("dictionary", []) if w]
+    prompt = "，".join(words) if words else None
+    segments, _ = model.transcribe(io.BytesIO(wav_bytes), language=lang, initial_prompt=prompt)
     return "".join(s.text for s in segments).strip()
 
 

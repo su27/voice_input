@@ -8,6 +8,11 @@ stt:
     model: large-v3  # tiny/base/small/medium/large-v3
     device: auto  # auto/cpu/cuda
     language: zh
+    # 个人词典：常用专有名词、术语等，提高识别准确率
+    dictionary:
+      - ""  # 在这里添加你的专有词汇，例如：
+      # - "Kiro"
+      # - "DeepSeek"
   remote:
     api_url: https://api.groq.com/openai/v1/audio/transcriptions
     api_key: ""
@@ -25,7 +30,7 @@ llm:
       prompt: "修正以下语音识别文本的错别字和标点，保持原意不变，只返回修正后的文本："
 
     intent:
-      prompt: "理解以下语音的真实意图，去除口误、重复和修正（如'十点哦不是九点'应为'九点'），输出简洁准确的最终文本，不要解释："
+      prompt: "修正以下语音识别文本中的错别字和标点。如果有明显的口误修正（如'十点哦不是九点'应为'九点'），则采纳修正。除此之外不要删除、改写或精简任何内容，保留原始表达和语气词。只返回修正后的文本："
 
     email:
       prompt: "将以下语音识别文本整理为正式邮件格式，修正错别字，调整为书面语，保持原意。只返回邮件正文："
@@ -42,7 +47,7 @@ llm:
       profile: email
     - pattern: "Visual Studio|VS Code|IntelliJ|PyCharm"
       profile: code
-    - pattern: "WeChat|微信|Telegram|Discord|Slack"
+    - pattern: "飞书|WeChat|微信|Telegram|Discord|Slack"
       profile: chat
     - pattern: ".*"
       profile: intent
