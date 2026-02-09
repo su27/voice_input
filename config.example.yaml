@@ -1,0 +1,48 @@
+# 语音输入工具配置
+
+hotkey: ctrl_r  # 按住录音，松开结束。支持: ctrl_r, ctrl_l, alt_r, alt_l, shift_r, shift_l
+
+stt:
+  engine: local  # local / remote
+  local:
+    model: large-v3  # tiny/base/small/medium/large-v3
+    device: auto  # auto/cpu/cuda
+    language: zh
+  remote:
+    api_url: https://api.groq.com/openai/v1/audio/transcriptions
+    api_key: ""
+    model: whisper-large-v3
+
+llm:
+  enabled: true
+  api_url: https://api.deepseek.com/v1/chat/completions  # OpenAI 兼容 API
+  api_key: ""  # 填入你的 API key
+  model: deepseek-chat
+  default_profile: general
+
+  profiles:
+    general:
+      prompt: "修正以下语音识别文本的错别字和标点，保持原意不变，只返回修正后的文本："
+
+    intent:
+      prompt: "理解以下语音的真实意图，去除口误、重复和修正（如'十点哦不是九点'应为'九点'），输出简洁准确的最终文本，不要解释："
+
+    email:
+      prompt: "将以下语音识别文本整理为正式邮件格式，修正错别字，调整为书面语，保持原意。只返回邮件正文："
+
+    code:
+      prompt: "将以下语音识别文本转为代码注释或commit message格式，简洁准确，用英文输出："
+
+    chat:
+      prompt: "修正以下语音识别文本的错别字，保持口语化风格，只返回修正后的文本："
+
+  # 根据窗口标题自动匹配 profile（正则，先匹配先生效）
+  auto_match:
+    - pattern: "Outlook|Mail|Thunderbird|Gmail"
+      profile: email
+    - pattern: "Visual Studio|VS Code|IntelliJ|PyCharm"
+      profile: code
+    - pattern: "WeChat|微信|Telegram|Discord|Slack"
+      profile: chat
+    - pattern: ".*"
+      profile: intent

@@ -1,0 +1,66 @@
+import io
+import httpx
+import opencc
+from faster_whisper import WhisperModel
+
+_model = None
+_t2s = opencc.OpenCC("t2s")
+
+_PUNCT_MAP = str.maketrans({
+    ",": "，", ".": "。", "?": "？", "!": "！",
+    ":": "：", ";": "；", "(": "（", ")": "）",
+})
+
+
+def _fix_punct(text):
+    return text.translate(_PUNCT_MAP)
+
+
+def _get_model(cfg):
+    global _model
+    if _model is None:
+        local = cfg["stt"]["local"]
+        print(f"[STT] 加载 {local['model']}...")
+        _model = WhisperModel(local["model"], device=local["device"], compute_type="auto")
+        print("[STT] 就绪")
+    return _model
+
+
+def preload(cfg):
+    if cfg["stt"]["engine"] == "local":
+        _get_model(cfg)
+
+
+def unload():
+    global _model
+    if _model is not None:
+        del _model
+        _model = None
+
+
+def transcribe_local(wav_bytes, cfg):
+    model = _get_model(cfg)
+    lang = cfg["stt"]["local"].get("language", "zh")
+    segments, _ = model.transcribe(io.BytesIO(wav_bytes), language=lang)
+    return "".join(s.text for s in segments).strip()
+
+
+def transcribe_remote(wav_bytes, cfg):
+    remote = cfg["stt"]["remote"]
+    resp = httpx.post(
+        remote["api_url"],
+        headers={"Authorization": f"Bearer {remote['api_key']}"},
+        files={"file": ("audio.wav", wav_bytes, "audio/wav")},
+        data={"model": remote["model"], "language": cfg["stt"]["local"].get("language", "zh")},
+        timeout=30,
+    )
+    resp.raise_for_status()
+    return resp.json()["text"].strip()
+
+
+def transcribe(wav_bytes, cfg):
+    if cfg["stt"]["engine"] == "remote":
+        text = transcribe_remote(wav_bytes, cfg)
+    else:
+        text = transcribe_local(wav_bytes, cfg)
+    return _fix_punct(_t2s.convert(text))
