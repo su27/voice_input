@@ -50,12 +50,22 @@ def preload(cfg):
     print(f"[LLM] {llm['model']}")
 
 
-def polish(text, cfg):
+def polish(text, cfg, selected_text=None, force_profile=None):
     global _client
     llm = cfg.get("llm", {})
     if not llm.get("enabled"):
         return text
-    profile_name, prompt = _pick_profile(cfg)
+
+    if force_profile:
+        profile_name = force_profile
+        prompt = llm.get("profiles", {}).get(force_profile, {}).get("prompt", "")
+    elif selected_text:
+        profile_name = "command"
+        prompt_tpl = llm.get("profiles", {}).get("command", {}).get("prompt", "")
+        prompt = prompt_tpl.replace("{clipboard}", selected_text)
+    else:
+        profile_name, prompt = _pick_profile(cfg)
+
     try:
         if _client is None:
             _client = httpx.Client(timeout=60)

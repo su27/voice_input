@@ -1,6 +1,7 @@
 # 语音输入工具配置
 
 hotkey: ctrl_r  # 按住录音，松开结束。支持: ctrl_r, ctrl_l, alt_r, alt_l, shift_r, shift_l
+command_hotkey: alt_r  # 按住录音，对剪贴板内容执行语音指令
 
 stt:
   engine: local  # local / remote
@@ -40,6 +41,12 @@ llm:
 
     chat:
       prompt: "修正以下语音识别文本的错别字，保持口语化风格，只返回修正后的文本："
+
+    command:
+      prompt: "对以下文本执行用户的指令，只返回处理后的结果，不要解释。\n文本：{clipboard}\n指令："
+
+    bash:
+      prompt: "将以下自然语言描述转换为一条bash命令，只返回命令本身，不要解释，不要用markdown格式："
 
   # 根据窗口标题自动匹配 profile（正则，先匹配先生效）
   auto_match:
