@@ -59,6 +59,8 @@ def polish(text, cfg):
     try:
         if _client is None:
             _client = httpx.Client(timeout=60)
+        import time
+        t0 = time.perf_counter()
         resp = _client.post(
             llm["api_url"],
             headers=_headers(cfg),
@@ -70,8 +72,10 @@ def polish(text, cfg):
             timeout=60,
         )
         resp.raise_for_status()
-        result = resp.json()["choices"][0]["message"]["content"]
-        return _strip_think(result)
+        elapsed = time.perf_counter() - t0
+        result = _strip_think(resp.json()["choices"][0]["message"]["content"])
+        print(f"[LLM] {llm['model']}|{profile_name} ({elapsed:.2f}s) {result}")
+        return result
     except Exception as e:
-        print(f"[LLM] 润色失败: {e}")
+        print(f"[LLM] 失败: {e}")
         return text

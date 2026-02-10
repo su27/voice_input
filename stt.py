@@ -29,6 +29,7 @@ def _get_model(cfg):
 def preload(cfg):
     if cfg["stt"]["engine"] == "local":
         _get_model(cfg)
+    print(f"[STT] engine={cfg['stt']['engine']}")
 
 
 def unload():
@@ -62,8 +63,12 @@ def transcribe_remote(wav_bytes, cfg):
 
 
 def transcribe(wav_bytes, cfg):
+    import time
+    t0 = time.perf_counter()
     if cfg["stt"]["engine"] == "remote":
         text = transcribe_remote(wav_bytes, cfg)
     else:
         text = transcribe_local(wav_bytes, cfg)
+    elapsed = time.perf_counter() - t0
+    print(f"[STT] ({elapsed:.2f}s) {text}")
     return _fix_punct(_t2s.convert(text))

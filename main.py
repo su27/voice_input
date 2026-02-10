@@ -1,3 +1,4 @@
+import queue
 import threading
 import sys
 import yaml
@@ -26,6 +27,23 @@ CFG = load_config()
 rec = Recorder()
 recording = False
 tray_icon = None
+task_queue = queue.Queue()
+
+
+def worker():
+    """后台工作线程，顺序处理队列中的录音"""
+    while True:
+        wav = task_queue.get()
+        if wav is None:
+            break
+        try:
+            text = transcribe(wav, CFG)
+            if text:
+                text = polish(text, CFG)
+                type_text(text)
+        except Exception as e:
+            print(f"[错误] {e}")
+        task_queue.task_done()
 
 
 def parse_hotkey(s):
@@ -77,31 +95,14 @@ def on_release(key):
         recording = False
         update_icon(False)
         wav = rec.stop()
-        threading.Thread(target=process, args=(wav,), daemon=True).start()
-
-
-def process(wav: bytes):
-    try:
-        text = transcribe(wav, CFG)
-        print(f"[识别] {text}")
-        if text:
-            text = polish(text, CFG)
-            print(f"[输出] {text}")
-            type_text(text)
-    except Exception as e:
-        print(f"[错误] {e}")
-
-
-def toggle_model(icon, _):
-    import stt
-    if stt._model is not None:
-        unload()
-        print("[模型已卸载]")
-    else:
-        preload(CFG)
+        task_queue.put(wav)
+        qsize = task_queue.qsize()
+        if qsize > 1:
+            print(f"[队列] {qsize} 条待处理")
 
 
 def quit_app(icon, _):
+    task_queue.put(None)
     icon.stop()
 
 
@@ -111,6 +112,8 @@ def main():
     print(f"热键: {hotkey} | STT: {CFG['stt']['engine']}")
     preload(CFG)
     preload_llm(CFG)
+
+    threading.Thread(target=worker, daemon=True).start()
 
     listener = keyboard.Listener(on_press=on_press, on_release=on_release, daemon=True)
     listener.start()
