@@ -1,5 +1,6 @@
 import logging
 import io
+import platform
 log = logging.getLogger("voice")
 import wave
 import httpx
@@ -30,6 +31,8 @@ def _is_silent(wav_bytes, threshold=0.01):
 
 def _detect_cuda():
     """检测 CUDA 是否真正可用"""
+    if platform.system() != "Windows":
+        return False
     try:
         import ctranslate2
         if "cuda" in ctranslate2.get_supported_compute_types("cuda"):

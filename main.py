@@ -4,6 +4,8 @@ import logging
 import signal
 import sys
 import os
+import platform
+import subprocess
 import yaml
 import time
 import pystray
@@ -15,6 +17,9 @@ from recorder import Recorder
 from stt import transcribe, preload
 from llm import polish, preload as preload_llm
 from output import type_text
+
+IS_MAC = platform.system() == "Darwin"
+IS_WIN = platform.system() == "Windows"
 
 
 def setup_logging():
@@ -41,6 +46,11 @@ SPECIAL_KEYS = {
     "shift_r": keyboard.Key.shift_r,
     "shift_l": keyboard.Key.shift_l,
 }
+if IS_MAC:
+    SPECIAL_KEYS.update({
+        "cmd_r": keyboard.Key.cmd_r,
+        "cmd_l": keyboard.Key.cmd_l,
+    })
 
 CFG = load_config()
 recording = False
@@ -54,8 +64,8 @@ _current_mode = None
 _current_window_title = ""
 _segment_count = 0
 _session_id = 0
-_session_results = {}  # session_id -> [text1, text2, ...]
-_session_total = {}    # session_id -> 总段数 (松开后才设置)
+_session_results = {}
+_session_total = {}
 _session_lock = threading.Lock()
 
 
@@ -74,29 +84,55 @@ def _on_segment(wav):
 rec = Recorder(on_segment=_on_segment)
 
 
-TERMINAL_PROCESSES = ("windowsterminal.exe", "powershell.exe", "cmd.exe", "pwsh.exe",
-                      "conhost.exe", "cmder.exe", "mintty.exe", "alacritty.exe", "wezterm-gui.exe")
+if IS_MAC:
+    TERMINAL_PROCESSES = ("terminal", "iterm2", "alacritty", "wezterm-gui", "kitty", "hyper")
+else:
+    TERMINAL_PROCESSES = ("windowsterminal.exe", "powershell.exe", "cmd.exe", "pwsh.exe",
+                          "conhost.exe", "cmder.exe", "mintty.exe", "alacritty.exe", "wezterm-gui.exe")
 
 
 def _get_foreground_window():
     """获取当前前台窗口的进程名和标题"""
-    try:
-        import ctypes
-        from ctypes import wintypes
-        hwnd = ctypes.windll.user32.GetForegroundWindow()
-        pid = wintypes.DWORD()
-        ctypes.windll.user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
-        handle = ctypes.windll.kernel32.OpenProcess(0x0400 | 0x0010, False, pid.value)
-        buf = ctypes.create_unicode_buffer(260)
-        ctypes.windll.psapi.GetModuleFileNameExW(handle, None, buf, 260)
-        ctypes.windll.kernel32.CloseHandle(handle)
-        proc_name = os.path.basename(buf.value).lower()
-        length = ctypes.windll.user32.GetWindowTextLengthW(hwnd)
-        tbuf = ctypes.create_unicode_buffer(length + 1)
-        ctypes.windll.user32.GetWindowTextW(hwnd, tbuf, length + 1)
-        return proc_name, tbuf.value
-    except Exception:
-        return "", ""
+    if IS_MAC:
+        try:
+            script = '''
+            tell application "System Events"
+                set fp to first application process whose frontmost is true
+                set pname to name of fp
+            end tell
+            tell application pname to get name of front window
+            '''
+            title = subprocess.check_output(["osascript", "-e", script],
+                                            stderr=subprocess.DEVNULL, timeout=2).decode().strip()
+            script2 = '''
+            tell application "System Events"
+                set fp to first application process whose frontmost is true
+                return name of fp
+            end tell
+            '''
+            proc = subprocess.check_output(["osascript", "-e", script2],
+                                           stderr=subprocess.DEVNULL, timeout=2).decode().strip().lower()
+            return proc, title
+        except Exception:
+            return "", ""
+    else:
+        try:
+            import ctypes
+            from ctypes import wintypes
+            hwnd = ctypes.windll.user32.GetForegroundWindow()
+            pid = wintypes.DWORD()
+            ctypes.windll.user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+            handle = ctypes.windll.kernel32.OpenProcess(0x0400 | 0x0010, False, pid.value)
+            buf = ctypes.create_unicode_buffer(260)
+            ctypes.windll.psapi.GetModuleFileNameExW(handle, None, buf, 260)
+            ctypes.windll.kernel32.CloseHandle(handle)
+            proc_name = os.path.basename(buf.value).lower()
+            length = ctypes.windll.user32.GetWindowTextLengthW(hwnd)
+            tbuf = ctypes.create_unicode_buffer(length + 1)
+            ctypes.windll.user32.GetWindowTextW(hwnd, tbuf, length + 1)
+            return proc_name, tbuf.value
+        except Exception:
+            return "", ""
 
 
 def _is_terminal(proc_name):
@@ -107,18 +143,31 @@ def _try_copy_selection(proc_name):
     """尝试复制选中文本，返回选中的文本或 None"""
     if _is_terminal(proc_name):
         return None
-    import ctypes
-    old_seq = ctypes.windll.user32.GetClipboardSequenceNumber()
-    kb = keyboard.Controller()
-    kb.press(keyboard.Key.ctrl_l)
-    kb.press('c')
-    kb.release('c')
-    kb.release(keyboard.Key.ctrl_l)
-    time.sleep(0.15)
-    new_seq = ctypes.windll.user32.GetClipboardSequenceNumber()
-    if new_seq != old_seq:
-        return pyperclip.paste().strip() or None
-    return None
+    if IS_MAC:
+        old = pyperclip.paste()
+        kb = keyboard.Controller()
+        kb.press(keyboard.Key.cmd)
+        kb.press('c')
+        kb.release('c')
+        kb.release(keyboard.Key.cmd)
+        time.sleep(0.15)
+        new = pyperclip.paste()
+        if new != old:
+            return new.strip() or None
+        return None
+    else:
+        import ctypes
+        old_seq = ctypes.windll.user32.GetClipboardSequenceNumber()
+        kb = keyboard.Controller()
+        kb.press(keyboard.Key.ctrl_l)
+        kb.press('c')
+        kb.release('c')
+        kb.release(keyboard.Key.ctrl_l)
+        time.sleep(0.15)
+        new_seq = ctypes.windll.user32.GetClipboardSequenceNumber()
+        if new_seq != old_seq:
+            return pyperclip.paste().strip() or None
+        return None
 
 
 def worker():
@@ -138,11 +187,9 @@ def worker():
                     text = polish(text, CFG, selected_text=selected)
                 else:
                     text = polish(text, CFG, window_title=window_title)
-            # 攒结果
             with _session_lock:
                 if sid in _session_results:
                     _session_results[sid].append(text or "")
-                    # 只有设置了 total 且收齐了才输出
                     total = _session_total.get(sid)
                     if total and len(_session_results[sid]) >= total:
                         full_text = "".join(_session_results[sid])
@@ -235,12 +282,10 @@ def on_release(key):
         if len(wav) < 38400 and _segment_count == 0:
             log.info(f"[on_release] 丢弃，太短")
             return
-        # 计算总段数
         total = _segment_count + (1 if len(wav) >= 38400 else 0)
         selected = _current_selected if _segment_count == 0 else None
         if len(wav) >= 38400:
             task_queue.put((_session_id, wav, selected, _current_is_terminal, _current_mode, _current_window_title))
-        # 设置 total，并检查是否已经收齐
         if _segment_count > 0:
             with _session_lock:
                 _session_total[_session_id] = total
@@ -257,15 +302,19 @@ def on_release(key):
             log.info(f"[队列] {qsize} 条待处理")
 
 
+def _open_file(path):
+    if IS_MAC:
+        subprocess.Popen(["open", path])
+    else:
+        os.startfile(path)
+
 def open_config(icon, _):
-    os.startfile(os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.yaml"))
+    _open_file(os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.yaml"))
 
 def open_log(icon, _):
-    os.startfile(os.path.join(os.path.dirname(os.path.abspath(__file__)), "voice.log"))
+    _open_file(os.path.join(os.path.dirname(os.path.abspath(__file__)), "voice.log"))
 
 def quit_app(icon, _):
-    task_queue.put(None)
-    icon.stop()
     task_queue.put(None)
     icon.stop()
 
