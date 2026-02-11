@@ -246,7 +246,11 @@ def on_release(key):
             log.info(f"[队列] {qsize} 条待处理")
 
 
-def quit_app(icon, _):
+def open_config(icon, _):
+    os.startfile(os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.yaml"))
+
+def open_log(icon, _):
+    os.startfile(os.path.join(os.path.dirname(os.path.abspath(__file__)), "voice.log"))
     task_queue.put(None)
     icon.stop()
 
@@ -264,6 +268,8 @@ def main():
     listener.start()
 
     tray_icon = pystray.Icon("voice", make_icon(), "语音输入", menu=pystray.Menu(
+        pystray.MenuItem("配置", open_config),
+        pystray.MenuItem("日志", open_log),
         pystray.MenuItem("退出", quit_app),
     ))
     log.info("语音输入已启动")

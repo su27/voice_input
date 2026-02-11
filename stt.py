@@ -28,12 +28,28 @@ def _is_silent(wav_bytes, threshold=0.01):
         return np.sqrt(np.mean(audio ** 2)) < threshold
 
 
+def _detect_device():
+    """检测是否有 NVIDIA GPU"""
+    import ctypes
+    try:
+        ctypes.cdll.LoadLibrary("nvcuda.dll")
+        return "cuda"
+    except OSError:
+        return "cpu"
+
+
 def _get_model(cfg):
     global _model
     if _model is None:
         local = cfg["stt"]["local"]
-        log.info(f"[STT] 加载 {local['model']}...")
-        _model = WhisperModel(local["model"], device=local["device"], compute_type="auto")
+        device = local.get("device", "auto")
+        if device == "auto":
+            device = _detect_device()
+        model = local.get("model", "auto")
+        if model == "auto":
+            model = "large-v3" if device == "cuda" else "small"
+        log.info(f"[STT] 加载 {model} (device={device})...")
+        _model = WhisperModel(model, device=device, compute_type="auto")
         log.info("[STT] 就绪")
     return _model
 

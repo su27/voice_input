@@ -6,8 +6,8 @@ command_hotkey: alt_r  # 按住录音，对剪贴板内容执行语音指令
 stt:
   engine: local  # local / remote
   local:
-    model: large-v3  # tiny/base/small/medium/large-v3
-    device: auto  # auto/cpu/cuda
+    model: auto  # auto(自动选择) / tiny/base/small/medium/large-v3
+    device: auto  # auto(自动检测) / cpu / cuda
     language: zh
     # 个人词典：常用专有名词、术语等，提高识别准确率
     dictionary:
