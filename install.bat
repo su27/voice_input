@@ -21,7 +21,7 @@ if errorlevel 1 (
 )
 
 echo [2/3] 安装依赖...
-.venv\Scripts\pip.exe install -r requirements.txt -q
+.venv\Scripts\pip.exe install -r requirements.txt
 if errorlevel 1 (
     echo [错误] 安装依赖失败
     pause

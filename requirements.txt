@@ -8,5 +8,6 @@ httpx
 pystray
 Pillow
 pyyaml
+opencc-python-reimplemented
 nvidia-cublas-cu12
 nvidia-cudnn-cu12
