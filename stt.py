@@ -1,6 +1,8 @@
 import io
+import wave
 import httpx
 import opencc
+import numpy as np
 from faster_whisper import WhisperModel
 
 _model = None
@@ -14,6 +16,14 @@ _PUNCT_MAP = str.maketrans({
 
 def _fix_punct(text):
     return text.translate(_PUNCT_MAP)
+
+
+def _is_silent(wav_bytes, threshold=0.01):
+    """检测音频是否为静音"""
+    with wave.open(io.BytesIO(wav_bytes), "rb") as wf:
+        frames = wf.readframes(wf.getnframes())
+        audio = np.frombuffer(frames, dtype=np.int16).astype(np.float32) / 32767
+        return np.sqrt(np.mean(audio ** 2)) < threshold
 
 
 def _get_model(cfg):
@@ -64,6 +74,9 @@ def transcribe_remote(wav_bytes, cfg):
 
 def transcribe(wav_bytes, cfg):
     import time
+    if _is_silent(wav_bytes):
+        print("[STT] 跳过静音")
+        return ""
     t0 = time.perf_counter()
     if cfg["stt"]["engine"] == "remote":
         text = transcribe_remote(wav_bytes, cfg)

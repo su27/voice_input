@@ -37,18 +37,24 @@ task_queue = queue.Queue()
 _current_selected = None
 _current_is_terminal = False
 _current_mode = None
-_current_window_title = ""  # 按下时记录，供 LLM profile 匹配
-_segment_count = 0  # 当前会话已切割的段数
+_current_window_title = ""
+_segment_count = 0
+_session_id = 0
+_session_results = {}  # session_id -> [text1, text2, ...]
+_session_total = {}    # session_id -> 总段数 (松开后才设置)
+_session_lock = threading.Lock()
 
 
 def _on_segment(wav):
     """录音中静音切割回调"""
     global _segment_count
     _segment_count += 1
+    with _session_lock:
+        if _session_id not in _session_results:
+            _session_results[_session_id] = []
     print(f"[自动切割] 第{_segment_count}段 {len(wav)} bytes")
-    # 只有第一段用 selected_text，后续段不走 command 模式
     selected = _current_selected if _segment_count == 1 else None
-    task_queue.put((wav, selected, _current_is_terminal, _current_mode, _current_window_title))
+    task_queue.put((_session_id, wav, selected, _current_is_terminal, _current_mode, _current_window_title))
 
 
 rec = Recorder(on_segment=_on_segment)
@@ -106,9 +112,10 @@ def worker():
         item = task_queue.get()
         if item is None:
             break
-        wav, selected, is_terminal, mode, window_title = item
+        sid, wav, selected, is_terminal, mode, window_title = item
         try:
-            update_icon("processing")
+            if not recording:
+                update_icon("processing")
             text = transcribe(wav, CFG)
             if text:
                 if mode == "bash":
@@ -117,7 +124,21 @@ def worker():
                     text = polish(text, CFG, selected_text=selected)
                 else:
                     text = polish(text, CFG, window_title=window_title)
-                type_text(text, is_terminal=is_terminal)
+            # 攒结果
+            with _session_lock:
+                if sid in _session_results:
+                    _session_results[sid].append(text or "")
+                    # 只有设置了 total 且收齐了才输出
+                    total = _session_total.get(sid)
+                    if total and len(_session_results[sid]) >= total:
+                        full_text = "".join(_session_results[sid])
+                        del _session_results[sid], _session_total[sid]
+                    else:
+                        full_text = None
+                else:
+                    full_text = text
+            if full_text:
+                type_text(full_text, is_terminal=is_terminal)
         except Exception as e:
             print(f"[错误] {e}")
         finally:
@@ -160,7 +181,7 @@ def update_icon(state="idle"):
 
 
 def on_press(key):
-    global recording, _current_selected, _current_is_terminal, _current_mode, _current_window_title, _segment_count
+    global recording, _current_selected, _current_is_terminal, _current_mode, _current_window_title, _segment_count, _session_id
     if recording:
         return
     if key == HOTKEY:
@@ -173,6 +194,7 @@ def on_press(key):
     _current_is_terminal = _is_terminal(proc_name)
     _current_window_title = title
     _segment_count = 0
+    _session_id += 1
     print(f"[窗口] {proc_name} | {title}")
     if _current_mode == "input":
         _current_selected = _try_copy_selection(proc_name)
@@ -195,11 +217,16 @@ def on_release(key):
         recording = False
         update_icon("idle")
         wav = rec.stop()
-        if len(wav) < 16000:
+        if len(wav) < 38400 and _segment_count == 0:
             return
-        # 最后一段：如果之前有切割过，selected 设为 None
+        # 计算总段数并设置，worker 看到 total 才会输出
+        total = _segment_count + (1 if len(wav) >= 38400 else 0)
         selected = _current_selected if _segment_count == 0 else None
-        task_queue.put((wav, selected, _current_is_terminal, _current_mode, _current_window_title))
+        if len(wav) >= 38400:
+            task_queue.put((_session_id, wav, selected, _current_is_terminal, _current_mode, _current_window_title))
+        if _segment_count > 0:
+            with _session_lock:
+                _session_total[_session_id] = total
         qsize = task_queue.qsize()
         if qsize > 1:
             print(f"[队列] {qsize} 条待处理")
