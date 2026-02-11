@@ -251,6 +251,10 @@ def open_config(icon, _):
 
 def open_log(icon, _):
     os.startfile(os.path.join(os.path.dirname(os.path.abspath(__file__)), "voice.log"))
+
+def quit_app(icon, _):
+    task_queue.put(None)
+    icon.stop()
     task_queue.put(None)
     icon.stop()
 
