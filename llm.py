@@ -4,26 +4,13 @@ import httpx
 _client = None
 
 
-def _get_active_window_title():
-    try:
-        import ctypes
-        hwnd = ctypes.windll.user32.GetForegroundWindow()
-        length = ctypes.windll.user32.GetWindowTextLengthW(hwnd)
-        buf = ctypes.create_unicode_buffer(length + 1)
-        ctypes.windll.user32.GetWindowTextW(hwnd, buf, length + 1)
-        return buf.value
-    except Exception:
-        return ""
-
-
-def _pick_profile(cfg):
+def _pick_profile(cfg, window_title=""):
     llm = cfg.get("llm", {})
     profiles = llm.get("profiles", {})
     default = llm.get("default_profile", "general")
-    title = _get_active_window_title()
-    if title:
+    if window_title:
         for rule in llm.get("auto_match", []):
-            if re.search(rule["pattern"], title, re.IGNORECASE):
+            if re.search(rule["pattern"], window_title, re.IGNORECASE):
                 name = rule["profile"]
                 if name in profiles:
                     return name, profiles[name]["prompt"]
@@ -50,7 +37,7 @@ def preload(cfg):
     print(f"[LLM] {llm['model']}")
 
 
-def polish(text, cfg, selected_text=None, force_profile=None):
+def polish(text, cfg, selected_text=None, force_profile=None, window_title=""):
     global _client
     llm = cfg.get("llm", {})
     if not llm.get("enabled"):
@@ -64,7 +51,7 @@ def polish(text, cfg, selected_text=None, force_profile=None):
         prompt_tpl = llm.get("profiles", {}).get("command", {}).get("prompt", "")
         prompt = prompt_tpl.replace("{clipboard}", selected_text)
     else:
-        profile_name, prompt = _pick_profile(cfg)
+        profile_name, prompt = _pick_profile(cfg, window_title)
 
     try:
         if _client is None:

@@ -2,6 +2,7 @@ import queue
 import threading
 import signal
 import sys
+import os
 import yaml
 import time
 import pystray
@@ -28,10 +29,29 @@ SPECIAL_KEYS = {
 }
 
 CFG = load_config()
-rec = Recorder()
 recording = False
 tray_icon = None
 task_queue = queue.Queue()
+
+# 当前录音会话的上下文（按下热键时确定，整个会话共享）
+_current_selected = None
+_current_is_terminal = False
+_current_mode = None
+_current_window_title = ""  # 按下时记录，供 LLM profile 匹配
+_segment_count = 0  # 当前会话已切割的段数
+
+
+def _on_segment(wav):
+    """录音中静音切割回调"""
+    global _segment_count
+    _segment_count += 1
+    print(f"[自动切割] 第{_segment_count}段 {len(wav)} bytes")
+    # 只有第一段用 selected_text，后续段不走 command 模式
+    selected = _current_selected if _segment_count == 1 else None
+    task_queue.put((wav, selected, _current_is_terminal, _current_mode, _current_window_title))
+
+
+rec = Recorder(on_segment=_on_segment)
 
 
 TERMINAL_PROCESSES = ("windowsterminal.exe", "powershell.exe", "cmd.exe", "pwsh.exe",
@@ -46,13 +66,11 @@ def _get_foreground_window():
         hwnd = ctypes.windll.user32.GetForegroundWindow()
         pid = wintypes.DWORD()
         ctypes.windll.user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
-        handle = ctypes.windll.kernel32.OpenProcess(0x0400 | 0x0010, False, pid.value)  # PROCESS_QUERY_INFORMATION | PROCESS_VM_READ
+        handle = ctypes.windll.kernel32.OpenProcess(0x0400 | 0x0010, False, pid.value)
         buf = ctypes.create_unicode_buffer(260)
         ctypes.windll.psapi.GetModuleFileNameExW(handle, None, buf, 260)
         ctypes.windll.kernel32.CloseHandle(handle)
-        import os
         proc_name = os.path.basename(buf.value).lower()
-        # 也获取标题
         length = ctypes.windll.user32.GetWindowTextLengthW(hwnd)
         tbuf = ctypes.create_unicode_buffer(length + 1)
         ctypes.windll.user32.GetWindowTextW(hwnd, tbuf, length + 1)
@@ -65,9 +83,8 @@ def _is_terminal(proc_name):
     return proc_name in TERMINAL_PROCESSES
 
 
-def _try_copy_selection(proc_name, title):
+def _try_copy_selection(proc_name):
     """尝试复制选中文本，返回选中的文本或 None"""
-    print(f"[窗口] {proc_name} | {title}")
     if _is_terminal(proc_name):
         return None
     import ctypes
@@ -89,17 +106,23 @@ def worker():
         item = task_queue.get()
         if item is None:
             break
-        wav, selected, is_terminal, mode = item
+        wav, selected, is_terminal, mode, window_title = item
         try:
+            update_icon("processing")
             text = transcribe(wav, CFG)
             if text:
                 if mode == "bash":
                     text = polish(text, CFG, force_profile="bash")
-                else:
+                elif selected:
                     text = polish(text, CFG, selected_text=selected)
+                else:
+                    text = polish(text, CFG, window_title=window_title)
                 type_text(text, is_terminal=is_terminal)
         except Exception as e:
             print(f"[错误] {e}")
+        finally:
+            if not recording:
+                update_icon("idle")
         task_queue.task_done()
 
 
@@ -114,12 +137,14 @@ HOTKEY = parse_hotkey(CFG.get("hotkey", "ctrl_r"))
 BASH_HOTKEY = keyboard.Key.alt_gr
 
 
-def make_icon(active=False):
+def make_icon(state="idle"):
     size = 64
     img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
     d = ImageDraw.Draw(img)
-    if active:
+    if state == "recording":
         fill, accent = (220, 80, 80), (230, 100, 100)
+    elif state == "processing":
+        fill, accent = (220, 180, 50), (230, 200, 70)
     else:
         fill, accent = (60, 160, 80), (80, 180, 100)
     d.rounded_rectangle([22, 8, 42, 34], radius=10, fill=fill)
@@ -129,18 +154,13 @@ def make_icon(active=False):
     return img
 
 
-def update_icon(active=False):
+def update_icon(state="idle"):
     if tray_icon:
-        tray_icon.icon = make_icon(active)
+        tray_icon.icon = make_icon(state)
 
-
-selected_text = None
-
-_current_is_terminal = False
-_current_mode = None  # "input" or "bash"
 
 def on_press(key):
-    global recording, selected_text, _current_is_terminal, _current_mode
+    global recording, _current_selected, _current_is_terminal, _current_mode, _current_window_title, _segment_count
     if recording:
         return
     if key == HOTKEY:
@@ -151,34 +171,38 @@ def on_press(key):
         return
     proc_name, title = _get_foreground_window()
     _current_is_terminal = _is_terminal(proc_name)
+    _current_window_title = title
+    _segment_count = 0
+    print(f"[窗口] {proc_name} | {title}")
     if _current_mode == "input":
-        selected_text = _try_copy_selection(proc_name, title)
-        if selected_text:
-            print(f"[选中文本] {selected_text[:50]}...")
+        _current_selected = _try_copy_selection(proc_name)
+        if _current_selected:
+            print(f"[选中文本] {_current_selected[:50]}...")
     else:
-        selected_text = None
+        _current_selected = None
     recording = True
     print(f"[录音中...] mode={_current_mode}")
-    update_icon(True)
+    update_icon("recording")
     rec.start()
 
 
 def on_release(key):
-    global recording, selected_text, _current_mode
+    global recording
     if not recording:
         return
     if (_current_mode == "input" and key == HOTKEY) or \
        (_current_mode == "bash" and key == BASH_HOTKEY):
         recording = False
-        update_icon(False)
+        update_icon("idle")
         wav = rec.stop()
         if len(wav) < 16000:
             return
-        task_queue.put((wav, selected_text, _current_is_terminal, _current_mode))
-        selected_text = None
-    qsize = task_queue.qsize()
-    if qsize > 1:
-        print(f"[队列] {qsize} 条待处理")
+        # 最后一段：如果之前有切割过，selected 设为 None
+        selected = _current_selected if _segment_count == 0 else None
+        task_queue.put((wav, selected, _current_is_terminal, _current_mode, _current_window_title))
+        qsize = task_queue.qsize()
+        if qsize > 1:
+            print(f"[队列] {qsize} 条待处理")
 
 
 def quit_app(icon, _):
