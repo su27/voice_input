@@ -1,5 +1,6 @@
 import queue
 import threading
+import logging
 import signal
 import sys
 import os
@@ -14,6 +15,19 @@ from recorder import Recorder
 from stt import transcribe, preload
 from llm import polish, preload as preload_llm
 from output import type_text
+
+
+def setup_logging():
+    log_fmt = "%(asctime)s %(message)s"
+    date_fmt = "%H:%M:%S"
+    handlers = [logging.StreamHandler(sys.stdout)] if sys.stdout else []
+    log_dir = os.path.dirname(os.path.abspath(__file__))
+    handlers.append(logging.FileHandler(os.path.join(log_dir, "voice.log"), encoding="utf-8"))
+    logging.basicConfig(level=logging.INFO, format=log_fmt, datefmt=date_fmt, handlers=handlers)
+
+
+setup_logging()
+log = logging.getLogger("voice")
 
 def load_config():
     with open("config.yaml", encoding="utf-8") as f:
@@ -52,7 +66,7 @@ def _on_segment(wav):
     with _session_lock:
         if _session_id not in _session_results:
             _session_results[_session_id] = []
-    print(f"[自动切割] 第{_segment_count}段 {len(wav)} bytes")
+    log.info(f"[自动切割] 第{_segment_count}段 {len(wav)} bytes")
     selected = _current_selected if _segment_count == 1 else None
     task_queue.put((_session_id, wav, selected, _current_is_terminal, _current_mode, _current_window_title))
 
@@ -140,7 +154,7 @@ def worker():
             if full_text:
                 type_text(full_text, is_terminal=is_terminal)
         except Exception as e:
-            print(f"[错误] {e}")
+            log.info(f"[错误] {e}")
         finally:
             if not recording:
                 update_icon("idle")
@@ -195,15 +209,15 @@ def on_press(key):
     _current_window_title = title
     _segment_count = 0
     _session_id += 1
-    print(f"[窗口] {proc_name} | {title}")
+    log.info(f"[窗口] {proc_name} | {title}")
     if _current_mode == "input":
         _current_selected = _try_copy_selection(proc_name)
         if _current_selected:
-            print(f"[选中文本] {_current_selected[:50]}...")
+            log.info(f"[选中文本] {_current_selected[:50]}...")
     else:
         _current_selected = None
     recording = True
-    print(f"[录音中...] mode={_current_mode}")
+    log.info(f"[录音中...] mode={_current_mode}")
     update_icon("recording")
     rec.start()
 
@@ -229,7 +243,7 @@ def on_release(key):
                 _session_total[_session_id] = total
         qsize = task_queue.qsize()
         if qsize > 1:
-            print(f"[队列] {qsize} 条待处理")
+            log.info(f"[队列] {qsize} 条待处理")
 
 
 def quit_app(icon, _):
@@ -240,7 +254,7 @@ def quit_app(icon, _):
 def main():
     global tray_icon
     hotkey = CFG.get("hotkey", "ctrl_r")
-    print(f"热键: {hotkey} | STT: {CFG['stt']['engine']}")
+    log.info(f"热键: {hotkey} | STT: {CFG['stt']['engine']}")
     preload(CFG)
     preload_llm(CFG)
 
@@ -252,7 +266,7 @@ def main():
     tray_icon = pystray.Icon("voice", make_icon(), "语音输入", menu=pystray.Menu(
         pystray.MenuItem("退出", quit_app),
     ))
-    print("语音输入已启动")
+    log.info("语音输入已启动")
     signal.signal(signal.SIGINT, lambda *_: quit_app(tray_icon, None))
     tray_icon.run()
 

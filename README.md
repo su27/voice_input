@@ -5,90 +5,82 @@
 ## 功能
 
 - **语音转文字**：本地 faster-whisper（GPU 加速）或远程 API
-- **LLM 润色**：可选，支持 OpenAI 兼容 API（DeepSeek、Ollama 等）
-- **语音指令**：选中文本后按热键说话，可翻译、格式化、结构化等
+- **LLM 润色**：支持 OpenAI 兼容 API（DeepSeek、Ollama 等），按窗口自动切换策略
+- **语音指令**：选中文本后按热键说话，对选中内容执行操作（翻译、格式化等）
 - **语音转 bash**：按住右 Alt 说自然语言，自动转为 bash 命令
-- **智能 Profile**：根据当前活动窗口自动切换润色策略（邮件、代码、聊天等）
-- **连续输入**：上一条还在处理时可继续录音，队列顺序处理
-- **个人词典**：通过 initial_prompt 提高专有名词识别率
-- **系统托盘**：后台运行，托盘图标显示录音状态（绿色待机/红色录音）
-- **繁转简 + 标点修正**：自动处理 Whisper 输出的繁体和半角标点
-- **剪贴板保护**：粘贴后自动恢复剪贴板原内容
-- **选中文本检测**：通过剪贴板序列号检测，非 Terminal 窗口自动 Ctrl+C 复制选中内容
+- **连续输入**：支持连续录音，队列顺序处理
+- **长录音自动切割**：超过 6 秒检测静音自动分段，松开后合并输出
+- **个人词典**：提高专有名词识别率
+- **系统托盘**：绿色待机 / 红色录音 / 黄色处理中
+- **剪贴板保护**：粘贴后恢复原内容
 
 ## 安装
 
-```bash
-# 需要 Python 3.10+，Windows 环境
-pip install -r requirements.txt
-```
+需要 Windows + Python 3.10+
 
-GPU 加速需要额外安装 NVIDIA 运行时：
-
-```bash
-pip install nvidia-cublas-cu12 nvidia-cudnn-cu12
-```
-
-并将 dll 路径加入 PATH：
-
-```powershell
-$env:PATH += ";path\to\site-packages\nvidia\cublas\bin;path\to\site-packages\nvidia\cudnn\bin"
-```
-
-## 配置
-
-复制示例配置并编辑：
-
-```bash
-cp config.example.yaml config.yaml
-```
-
-主要配置项：
-
-| 配置 | 说明 |
-|------|------|
-| `hotkey` | 语音输入热键，默认 `ctrl_r`（右Ctrl） |
-| `stt.engine` | `local`（faster-whisper）或 `remote` |
-| `stt.local.model` | Whisper 模型：tiny/base/small/medium/large-v3 |
-| `stt.local.dictionary` | 个人词典，提高专有名词识别率 |
-| `llm.enabled` | 是否启用 LLM 润色 |
-| `llm.api_url` | LLM API 地址（OpenAI 兼容） |
-| `llm.profiles` | 润色策略，按窗口标题自动匹配 |
+1. 下载或 clone 本项目
+2. 双击 `install.bat`（自动创建虚拟环境、安装依赖、生成配置文件）
+3. 编辑 `config.yaml`，填入 LLM API key 等配置
 
 ## 使用
 
-```bash
-python main.py
-```
+- 双击 `start.bat` 启动（后台运行，无窗口）
+- 双击 `start_debug.bat` 启动（显示控制台，调试用）
+- 日志写入 `voice.log`
+- 右键托盘图标可退出
 
-### 语音输入（右 Ctrl）
+### 热键
 
-按住说话，松开后自动转写 → 润色 → 粘贴到光标位置。
+| 热键 | 功能 |
+|------|------|
+| 右 Ctrl（按住） | 语音输入，松开后转写粘贴 |
+| 右 Alt（按住） | 语音转 bash 命令 |
 
-- 无选中文本：根据当前窗口自动选择润色策略
-  - 邮件客户端 → 整理为正式邮件格式
-  - IDE → 转为代码注释/commit message
-  - 聊天软件 → 保持口语风格纠错
-  - 其他 → 纠错 + 口误修正
-- 有选中文本：语音作为指令，对选中文本执行操作（如"翻译成英文"、"格式化成表格"）
+### 语音指令
 
-### 语音转 bash（右 Alt）
+在非终端窗口中选中文本后按右 Ctrl 说话，语音作为指令对选中文本执行操作：
+- "翻译成英文"
+- "格式化成表格"
+- "总结一下"
 
-按住右 Alt 说自然语言，自动转为 bash 命令粘贴到终端。
+### LLM Profile 自动匹配
 
-例如说"列出当前目录下所有 py 文件" → `find . -name "*.py"`
+根据当前窗口标题自动选择润色策略：
+
+| 窗口 | Profile |
+|------|---------|
+| Outlook / Gmail | email（正式邮件格式） |
+| VS Code / IntelliJ | code（代码注释/commit message） |
+| 微信 / 飞书 / Slack | chat（口语纠错） |
+| 其他 | intent（保留原意纠错） |
+
+## 配置说明
+
+编辑 `config.yaml`，主要配置项：
+
+| 配置 | 说明 |
+|------|------|
+| `hotkey` | 语音输入热键，默认 `ctrl_r` |
+| `stt.engine` | `local` 或 `remote` |
+| `stt.local.model` | tiny / base / small / medium / large-v3 |
+| `stt.local.dictionary` | 个人词典列表 |
+| `llm.enabled` | 是否启用 LLM 润色 |
+| `llm.api_url` | OpenAI 兼容 API 地址 |
+| `llm.api_key` | API key |
 
 ## 项目结构
 
 ```
 ├── main.py              # 入口：热键监听 + 任务队列 + 系统托盘
-├── recorder.py          # 录音：常驻音频流 + 预缓冲
-├── stt.py               # 语音转文字：faster-whisper / 远程 API
-├── llm.py               # LLM 润色/指令：按窗口自动选择 profile
-├── output.py            # 输出：剪贴板 + 模拟粘贴 + 剪贴板恢复
-├── config.example.yaml
+├── recorder.py          # 录音：常驻音频流 + 预缓冲 + 静音切割
+├── stt.py               # 语音转文字
+├── llm.py               # LLM 润色/指令
+├── output.py            # 剪贴板粘贴 + 恢复
+├── config.example.yaml  # 示例配置
 ├── requirements.txt
-└── start.bat            # Windows 启动脚本
+├── install.bat          # 一键安装
+├── start.bat            # 启动（无窗口）
+└── start_debug.bat      # 启动（控制台调试）
 ```
 
 ## License

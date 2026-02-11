@@ -1,4 +1,6 @@
+import logging
 import io
+log = logging.getLogger("voice")
 import wave
 import httpx
 import opencc
@@ -30,16 +32,16 @@ def _get_model(cfg):
     global _model
     if _model is None:
         local = cfg["stt"]["local"]
-        print(f"[STT] 加载 {local['model']}...")
+        log.info(f"[STT] 加载 {local['model']}...")
         _model = WhisperModel(local["model"], device=local["device"], compute_type="auto")
-        print("[STT] 就绪")
+        log.info("[STT] 就绪")
     return _model
 
 
 def preload(cfg):
     if cfg["stt"]["engine"] == "local":
         _get_model(cfg)
-    print(f"[STT] engine={cfg['stt']['engine']}")
+    log.info(f"[STT] engine={cfg['stt']['engine']}")
 
 
 def unload():
@@ -75,7 +77,7 @@ def transcribe_remote(wav_bytes, cfg):
 def transcribe(wav_bytes, cfg):
     import time
     if _is_silent(wav_bytes):
-        print("[STT] 跳过静音")
+        log.info("[STT] 跳过静音")
         return ""
     t0 = time.perf_counter()
     if cfg["stt"]["engine"] == "remote":
@@ -83,5 +85,5 @@ def transcribe(wav_bytes, cfg):
     else:
         text = transcribe_local(wav_bytes, cfg)
     elapsed = time.perf_counter() - t0
-    print(f"[STT] ({elapsed:.2f}s) {text}")
+    log.info(f"[STT] ({elapsed:.2f}s) {text}")
     return _fix_punct(_t2s.convert(text))

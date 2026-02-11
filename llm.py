@@ -1,4 +1,6 @@
+import logging
 import re
+log = logging.getLogger("voice")
 import httpx
 
 _client = None
@@ -34,7 +36,7 @@ def preload(cfg):
     if not llm.get("enabled"):
         return
     _client = httpx.Client(timeout=60)
-    print(f"[LLM] {llm['model']}")
+    log.info(f"[LLM] {llm['model']}")
 
 
 def polish(text, cfg, selected_text=None, force_profile=None, window_title=""):
@@ -71,8 +73,8 @@ def polish(text, cfg, selected_text=None, force_profile=None, window_title=""):
         resp.raise_for_status()
         elapsed = time.perf_counter() - t0
         result = _strip_think(resp.json()["choices"][0]["message"]["content"])
-        print(f"[LLM] {llm['model']}|{profile_name} ({elapsed:.2f}s) {result}")
+        log.info(f"[LLM] {llm['model']}|{profile_name} ({elapsed:.2f}s) {result}")
         return result
     except Exception as e:
-        print(f"[LLM] 失败: {e}")
+        log.info(f"[LLM] 失败: {e}")
         return text
