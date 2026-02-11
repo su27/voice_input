@@ -4,8 +4,8 @@
 
 ## 功能
 
-- **语音转文字**：本地 faster-whisper（GPU 加速）或远程 API
-- **LLM 润色**：支持 OpenAI 兼容 API（DeepSeek、Ollama 等），按窗口自动切换策略
+- **语音转文字**：本地 faster-whisper（GPU 加速）/ 腾讯云 ASR / 远程 OpenAI 兼容 API
+- **LLM 润色**：支持 OpenAI 兼容 API（DeepSeek 等），按窗口自动切换策略
 - **语音指令**：选中文本后按热键说话，对选中内容执行操作（翻译、格式化等）
 - **语音转 bash**：按住右 Alt 说自然语言，自动转为 bash 命令
 - **连续输入**：支持连续录音，队列顺序处理
@@ -13,39 +13,61 @@
 - **个人词典**：提高专有名词识别率
 - **系统托盘**：绿色待机 / 红色录音 / 黄色处理中
 - **剪贴板保护**：粘贴后恢复原内容
+- **跨平台**：支持 Windows 和 macOS
 
-## 安装
+## Windows 安装
 
-需要 Windows + Python 3.10+
+需要 Python 3.10+
 
-1. 下载或 clone 本项目
+1. 下载 [最新 Release](https://github.com/su27/voice_input/releases/latest) 并解压
 2. 双击 `install.bat`（自动创建虚拟环境、安装依赖、生成配置文件）
-3. 编辑 `config.yaml`，填入 LLM API key 等配置
+3. 编辑 `config.yaml`，填入 API key
+4. （可选）本地 STT 需额外安装：`.venv\Scripts\pip.exe install -r requirements-local.txt`
 
-## 使用
+### 运行
 
-- 双击 `start.bat` 启动（后台运行，无窗口）
-- 双击 `start_debug.bat` 启动（显示控制台，调试用）
+- 双击 `start.bat` — 后台运行，无窗口
+- 双击 `start_debug.bat` — 显示控制台，调试用
 - 日志写入 `voice.log`
-- 右键托盘图标可退出
+- 右键托盘图标：查看配置、查看日志、退出
 
-### 热键
+## macOS 安装
+
+需要 Python 3（`brew install python`）
+
+1. 下载 [最新 Release](https://github.com/su27/voice_input/releases/latest) 并解压
+2. 终端运行 `./install.sh`
+3. 编辑 `config.yaml`，填入 API key（推荐 `engine: tencent`）
+4. 双击 `VoiceInput.app` 启动
+5. 首次运行需授权「辅助功能」权限（系统设置 → 隐私与安全性 → 辅助功能）
+
+## STT 引擎
+
+| 引擎 | 说明 | 适用场景 |
+|------|------|----------|
+| `local` | 本地 faster-whisper | 有 NVIDIA GPU 的 Windows |
+| `tencent` | 腾讯云一句话识别 | 无 GPU / macOS / 低延迟 |
+| `remote` | OpenAI 兼容 API（Groq 等） | 备选 |
+
+`engine: local` + `device: auto` + `model: auto` 时自动检测：有 CUDA 用 `large-v3`，无则回退腾讯云。
+
+## 热键
 
 | 热键 | 功能 |
 |------|------|
 | 右 Ctrl（按住） | 语音输入，松开后转写粘贴 |
 | 右 Alt（按住） | 语音转 bash 命令 |
 
-### 语音指令
+热键可在 `config.yaml` 中自定义。macOS 可用 `cmd_r`。
 
-在非终端窗口中选中文本后按右 Ctrl 说话，语音作为指令对选中文本执行操作：
+## 语音指令
+
+在非终端窗口中选中文本后按热键说话，语音作为指令对选中文本执行操作：
 - "翻译成英文"
 - "格式化成表格"
 - "总结一下"
 
-### LLM Profile 自动匹配
-
-根据当前窗口标题自动选择润色策略：
+## LLM Profile 自动匹配
 
 | 窗口 | Profile |
 |------|---------|
@@ -61,26 +83,28 @@
 | 配置 | 说明 |
 |------|------|
 | `hotkey` | 语音输入热键，默认 `ctrl_r` |
-| `stt.engine` | `local` 或 `remote` |
-| `stt.local.model` | tiny / base / small / medium / large-v3 |
-| `stt.local.dictionary` | 个人词典列表 |
+| `stt.engine` | `local` / `tencent` / `remote` |
+| `stt.tencent.secret_id/secret_key` | 腾讯云密钥 |
 | `llm.enabled` | 是否启用 LLM 润色 |
 | `llm.api_url` | OpenAI 兼容 API 地址 |
-| `llm.api_key` | API key |
+| `llm.api_key` | LLM API key |
 
 ## 项目结构
 
 ```
 ├── main.py              # 入口：热键监听 + 任务队列 + 系统托盘
 ├── recorder.py          # 录音：常驻音频流 + 预缓冲 + 静音切割
-├── stt.py               # 语音转文字
+├── stt.py               # 语音转文字（本地/腾讯云/远程）
 ├── llm.py               # LLM 润色/指令
 ├── output.py            # 剪贴板粘贴 + 恢复
 ├── config.example.yaml  # 示例配置
-├── requirements.txt
-├── install.bat          # 一键安装
-├── start.bat            # 启动（无窗口）
-└── start_debug.bat      # 启动（控制台调试）
+├── requirements.txt     # 基础依赖
+├── requirements-local.txt # 本地 STT 额外依赖
+├── install.bat          # Windows 一键安装
+├── start.bat            # Windows 启动（无窗口）
+├── start_debug.bat      # Windows 启动（控制台）
+├── install.sh           # macOS 一键安装
+└── VoiceInput.app/      # macOS 启动器
 ```
 
 ## License

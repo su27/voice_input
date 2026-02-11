@@ -1,12 +1,12 @@
 import logging
 import io
 import platform
+import sys
 log = logging.getLogger("voice")
 import wave
 import httpx
 import opencc
 import numpy as np
-from faster_whisper import WhisperModel
 
 _model = None
 _t2s = opencc.OpenCC("t2s")
@@ -50,6 +50,7 @@ def _get_model(cfg):
         device = local.get("device", "cuda")
         model = local.get("model", "large-v3")
         log.info(f"[STT] 加载 {model} (device={device})...")
+        from faster_whisper import WhisperModel
         _model = WhisperModel(model, device=device, compute_type="auto")
         log.info(f"[STT] 就绪 ({model}, {device})")
     return _model
@@ -73,6 +74,16 @@ def preload(cfg):
             except Exception as e:
                 log.info(f"[STT] 本地模型加载失败: {e}，切换到腾讯云")
                 cfg["stt"]["engine"] = "tencent"
+    if cfg["stt"]["engine"] == "tencent":
+        tc = cfg["stt"].get("tencent", {})
+        if not tc.get("secret_id") or not tc.get("secret_key"):
+            log.error("[STT] 腾讯云 ASR 未配置 secret_id/secret_key，请编辑 config.yaml")
+            sys.exit(1)
+    if cfg["stt"]["engine"] == "remote":
+        remote = cfg["stt"].get("remote", {})
+        if not remote.get("api_key"):
+            log.error("[STT] 远程 STT 未配置 api_key，请编辑 config.yaml")
+            sys.exit(1)
     log.info(f"[STT] engine={cfg['stt']['engine']}")
 
 

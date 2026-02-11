@@ -337,6 +337,8 @@ def main():
         pystray.MenuItem("退出", quit_app),
     ))
     log.info("语音输入已启动")
+    if IS_MAC:
+        log.info("Mac 用户请确保已授权「辅助功能」权限（系统设置 → 隐私与安全性 → 辅助功能）")
     signal.signal(signal.SIGINT, lambda *_: quit_app(tray_icon, None))
     tray_icon.run()
 

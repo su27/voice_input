@@ -35,6 +35,10 @@ def preload(cfg):
     llm = cfg.get("llm", {})
     if not llm.get("enabled"):
         return
+    if not llm.get("api_key"):
+        log.error("[LLM] 未配置 api_key，请编辑 config.yaml")
+        import sys
+        sys.exit(1)
     _client = httpx.Client(timeout=60)
     log.info(f"[LLM] {llm['model']}")
 
