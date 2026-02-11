@@ -59,18 +59,28 @@ def polish(text, cfg, selected_text=None, force_profile=None, window_title=""):
         if _client is None:
             _client = httpx.Client(timeout=60)
         import time
+        log.info(f"[LLM] 请求 {llm['model']}|{profile_name}...")
         t0 = time.perf_counter()
-        resp = _client.post(
-            llm["api_url"],
-            headers=_headers(cfg),
-            json={
-                "model": llm["model"],
-                "messages": [{"role": "user", "content": prompt + text}],
-                "temperature": 0,
-            },
-            timeout=60,
-        )
-        resp.raise_for_status()
+        for attempt in range(2):
+            try:
+                resp = _client.post(
+                    llm["api_url"],
+                    headers=_headers(cfg),
+                    json={
+                        "model": llm["model"],
+                        "messages": [{"role": "user", "content": prompt + text}],
+                        "temperature": 0,
+                    },
+                    timeout=60,
+                )
+                resp.raise_for_status()
+                break
+            except (ConnectionError, OSError) as e:
+                if attempt == 0:
+                    log.info(f"[LLM] 连接失败，重试: {e}")
+                    _client = httpx.Client(timeout=60)
+                    continue
+                raise
         elapsed = time.perf_counter() - t0
         result = _strip_think(resp.json()["choices"][0]["message"]["content"])
         log.info(f"[LLM] {llm['model']}|{profile_name} ({elapsed:.2f}s) {result}")

@@ -209,7 +209,7 @@ def on_press(key):
     _current_window_title = title
     _segment_count = 0
     _session_id += 1
-    log.info(f"[窗口] {proc_name} | {title}")
+    log.info(f"[on_press] sid={_session_id} {proc_name} | {title}")
     if _current_mode == "input":
         _current_selected = _try_copy_selection(proc_name)
         if _current_selected:
@@ -217,7 +217,7 @@ def on_press(key):
     else:
         _current_selected = None
     recording = True
-    log.info(f"[录音中...] mode={_current_mode}")
+    log.info(f"[录音开始] mode={_current_mode}")
     update_icon("recording")
     rec.start()
 
@@ -231,16 +231,27 @@ def on_release(key):
         recording = False
         update_icon("idle")
         wav = rec.stop()
+        log.info(f"[on_release] sid={_session_id} wav={len(wav)} segments={_segment_count}")
         if len(wav) < 38400 and _segment_count == 0:
+            log.info(f"[on_release] 丢弃，太短")
             return
-        # 计算总段数并设置，worker 看到 total 才会输出
+        # 计算总段数
         total = _segment_count + (1 if len(wav) >= 38400 else 0)
         selected = _current_selected if _segment_count == 0 else None
         if len(wav) >= 38400:
             task_queue.put((_session_id, wav, selected, _current_is_terminal, _current_mode, _current_window_title))
+        # 设置 total，并检查是否已经收齐
         if _segment_count > 0:
             with _session_lock:
                 _session_total[_session_id] = total
+                results = _session_results.get(_session_id)
+                if results is not None and len(results) >= total:
+                    full_text = "".join(results)
+                    del _session_results[_session_id], _session_total[_session_id]
+                else:
+                    full_text = None
+            if full_text:
+                type_text(full_text, is_terminal=_current_is_terminal)
         qsize = task_queue.qsize()
         if qsize > 1:
             log.info(f"[队列] {qsize} 条待处理")

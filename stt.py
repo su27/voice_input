@@ -28,35 +28,48 @@ def _is_silent(wav_bytes, threshold=0.01):
         return np.sqrt(np.mean(audio ** 2)) < threshold
 
 
-def _detect_device():
-    """检测是否有 NVIDIA GPU"""
-    import ctypes
+def _detect_cuda():
+    """检测 CUDA 是否真正可用"""
     try:
-        ctypes.cdll.LoadLibrary("nvcuda.dll")
-        return "cuda"
-    except OSError:
-        return "cpu"
+        import ctranslate2
+        if "cuda" in ctranslate2.get_supported_compute_types("cuda"):
+            log.info("[STT] CUDA 可用")
+            return True
+    except Exception as e:
+        log.info(f"[STT] CUDA 检测失败: {e}")
+    return False
 
 
 def _get_model(cfg):
     global _model
     if _model is None:
         local = cfg["stt"]["local"]
-        device = local.get("device", "auto")
-        if device == "auto":
-            device = _detect_device()
-        model = local.get("model", "auto")
-        if model == "auto":
-            model = "large-v3" if device == "cuda" else "small"
+        device = local.get("device", "cuda")
+        model = local.get("model", "large-v3")
         log.info(f"[STT] 加载 {model} (device={device})...")
         _model = WhisperModel(model, device=device, compute_type="auto")
-        log.info("[STT] 就绪")
+        log.info(f"[STT] 就绪 ({model}, {device})")
     return _model
 
 
 def preload(cfg):
     if cfg["stt"]["engine"] == "local":
-        _get_model(cfg)
+        local = cfg["stt"]["local"]
+        device = local.get("device", "auto")
+        model = local.get("model", "auto")
+        if device == "auto" or model == "auto":
+            if _detect_cuda():
+                local["device"] = "cuda" if device == "auto" else device
+                local["model"] = "large-v3" if model == "auto" else model
+            else:
+                log.info("[STT] 无可用 CUDA，切换到腾讯云")
+                cfg["stt"]["engine"] = "tencent"
+        if cfg["stt"]["engine"] == "local":
+            try:
+                _get_model(cfg)
+            except Exception as e:
+                log.info(f"[STT] 本地模型加载失败: {e}，切换到腾讯云")
+                cfg["stt"]["engine"] = "tencent"
     log.info(f"[STT] engine={cfg['stt']['engine']}")
 
 
