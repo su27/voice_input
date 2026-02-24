@@ -9,9 +9,12 @@ if sys.platform == "win32":
     for _pkg in ("nvidia.cublas", "nvidia.cudnn"):
         _spec = importlib.util.find_spec(_pkg)
         if _spec and _spec.submodule_search_locations:
-            _dll = os.path.join(list(_spec.submodule_search_locations)[0], "bin")
-            if os.path.isdir(_dll):
-                os.add_dll_directory(_dll)
+            for _loc in _spec.submodule_search_locations:
+                for _sub in ("bin", "lib", ""):
+                    _dll = os.path.join(_loc, _sub) if _sub else _loc
+                    if os.path.isdir(_dll):
+                        os.add_dll_directory(_dll)
+                        os.environ["PATH"] = _dll + os.pathsep + os.environ.get("PATH", "")
 
 import wave
 import httpx
