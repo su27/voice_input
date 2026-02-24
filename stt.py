@@ -57,6 +57,16 @@ def _get_model(cfg):
         device = local.get("device", "cuda")
         model = local.get("model", "large-v3")
         log.info(f"[STT] 加载 {model} (device={device})...")
+        if platform.system() == "Windows" and device == "cuda":
+            import os, importlib.util
+            for lib in ("nvidia.cublas", "nvidia.cudnn"):
+                spec = importlib.util.find_spec(lib)
+                if spec and spec.submodule_search_locations:
+                    for loc in spec.submodule_search_locations:
+                        dll_dir = os.path.join(loc, "bin")
+                        if os.path.isdir(dll_dir):
+                            os.add_dll_directory(dll_dir)
+                            log.info(f"[STT] 添加 DLL 路径: {dll_dir}")
         from faster_whisper import WhisperModel
         _model = WhisperModel(model, device=device, compute_type="auto")
         log.info(f"[STT] 就绪 ({model}, {device})")
