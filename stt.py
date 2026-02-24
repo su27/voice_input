@@ -1,6 +1,5 @@
 import logging
 import io
-import platform
 import sys
 log = logging.getLogger("voice")
 import wave
@@ -29,27 +28,6 @@ def _is_silent(wav_bytes, threshold=0.01):
         return np.sqrt(np.mean(audio ** 2)) < threshold
 
 
-def _detect_cuda():
-    """检测 CUDA 是否真正可用"""
-    if platform.system() != "Windows":
-        return False
-    try:
-        import ctranslate2
-        if "cuda" in ctranslate2.get_supported_compute_types("cuda"):
-            log.info("[STT] CUDA 可用 (ctranslate2)")
-            return True
-    except Exception as e:
-        log.info(f"[STT] ctranslate2 CUDA 检测失败: {e}")
-    try:
-        import ctypes
-        ctypes.cdll.LoadLibrary("nvcuda.dll")
-        log.info("[STT] CUDA 可用 (nvcuda.dll)")
-        return True
-    except OSError:
-        pass
-    return False
-
-
 def _get_model(cfg):
     global _model
     if _model is None:
@@ -57,16 +35,6 @@ def _get_model(cfg):
         device = local.get("device", "cuda")
         model = local.get("model", "large-v3")
         log.info(f"[STT] 加载 {model} (device={device})...")
-        if platform.system() == "Windows" and device == "cuda":
-            import os, importlib.util
-            for lib in ("nvidia.cublas", "nvidia.cudnn"):
-                spec = importlib.util.find_spec(lib)
-                if spec and spec.submodule_search_locations:
-                    for loc in spec.submodule_search_locations:
-                        dll_dir = os.path.join(loc, "bin")
-                        if os.path.isdir(dll_dir):
-                            os.add_dll_directory(dll_dir)
-                            log.info(f"[STT] 添加 DLL 路径: {dll_dir}")
         from faster_whisper import WhisperModel
         _model = WhisperModel(model, device=device, compute_type="auto")
         log.info(f"[STT] 就绪 ({model}, {device})")
@@ -74,34 +42,20 @@ def _get_model(cfg):
 
 
 def preload(cfg):
-    if cfg["stt"]["engine"] == "local":
-        local = cfg["stt"]["local"]
-        device = local.get("device", "auto")
-        model = local.get("model", "auto")
-        if device == "auto" or model == "auto":
-            if _detect_cuda():
-                local["device"] = "cuda" if device == "auto" else device
-                local["model"] = "large-v3" if model == "auto" else model
-            else:
-                log.info("[STT] 无可用 CUDA，切换到腾讯云")
-                cfg["stt"]["engine"] = "tencent"
-        if cfg["stt"]["engine"] == "local":
-            try:
-                _get_model(cfg)
-            except Exception as e:
-                log.info(f"[STT] 本地模型加载失败: {e}，切换到腾讯云")
-                cfg["stt"]["engine"] = "tencent"
-    if cfg["stt"]["engine"] == "tencent":
+    engine = cfg["stt"]["engine"]
+    if engine == "local":
+        _get_model(cfg)
+    elif engine == "tencent":
         tc = cfg["stt"].get("tencent", {})
         if not tc.get("secret_id") or not tc.get("secret_key"):
             log.error("[STT] 腾讯云 ASR 未配置 secret_id/secret_key，请编辑 config.yaml")
             sys.exit(1)
-    if cfg["stt"]["engine"] == "remote":
+    elif engine == "remote":
         remote = cfg["stt"].get("remote", {})
         if not remote.get("api_key"):
             log.error("[STT] 远程 STT 未配置 api_key，请编辑 config.yaml")
             sys.exit(1)
-    log.info(f"[STT] engine={cfg['stt']['engine']}")
+    log.info(f"[STT] engine={engine}")
 
 
 def unload():
