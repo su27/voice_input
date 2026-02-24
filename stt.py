@@ -1,29 +1,42 @@
-import logging
+import base64
+import hashlib
+import hmac
 import io
+import importlib.util
+import json
+import logging
 import os
 import sys
-import importlib.util
+import time
+import wave
+from datetime import datetime, timezone
+
+import httpx
+import numpy as np
+import opencc
+
 log = logging.getLogger("voice")
 
-if sys.platform == "win32":
-    for _pkg in ("nvidia.cublas", "nvidia.cudnn"):
-        _spec = importlib.util.find_spec(_pkg)
-        if _spec and _spec.submodule_search_locations:
-            for _loc in _spec.submodule_search_locations:
-                for _sub in ("bin", "lib", ""):
-                    _dll = os.path.join(_loc, _sub) if _sub else _loc
-                    if os.path.isdir(_dll):
-                        os.add_dll_directory(_dll)
-                        os.environ["PATH"] = _dll + os.pathsep + os.environ.get("PATH", "")
 
-import wave
-import httpx
-import opencc
-import numpy as np
+def _setup_nvidia_dll_path():
+    """Windows: 将 pip 安装的 nvidia dll 路径加入搜索路径"""
+    for pkg in ("nvidia.cublas", "nvidia.cudnn"):
+        spec = importlib.util.find_spec(pkg)
+        if not spec or not spec.submodule_search_locations:
+            continue
+        for loc in spec.submodule_search_locations:
+            for sub in ("bin", "lib", ""):
+                d = os.path.join(loc, sub) if sub else loc
+                if os.path.isdir(d):
+                    os.add_dll_directory(d)
+                    os.environ["PATH"] = d + os.pathsep + os.environ.get("PATH", "")
+
+
+if sys.platform == "win32":
+    _setup_nvidia_dll_path()
 
 _model = None
 _t2s = opencc.OpenCC("t2s")
-
 _PUNCT_MAP = str.maketrans({
     ",": "，", ".": "。", "?": "？", "!": "！",
     ":": "：", ";": "；", "(": "（", ")": "）",
@@ -35,10 +48,8 @@ def _fix_punct(text):
 
 
 def _is_silent(wav_bytes, threshold=0.01):
-    """检测音频是否为静音"""
     with wave.open(io.BytesIO(wav_bytes), "rb") as wf:
-        frames = wf.readframes(wf.getnframes())
-        audio = np.frombuffer(frames, dtype=np.int16).astype(np.float32) / 32767
+        audio = np.frombuffer(wf.readframes(wf.getnframes()), dtype=np.int16).astype(np.float32) / 32767
         return np.sqrt(np.mean(audio ** 2)) < threshold
 
 
@@ -55,6 +66,29 @@ def _get_model(cfg):
     return _model
 
 
+def _tc3_sign(secret_key, payload_str, timestamp):
+    """腾讯云 TC3-HMAC-SHA256 签名"""
+    service = "asr"
+    date = datetime.fromtimestamp(timestamp, tz=timezone.utc).strftime("%Y-%m-%d")
+    credential_scope = f"{date}/{service}/tc3_request"
+    canonical = (f"POST\n/\n\ncontent-type:application/json; charset=utf-8\n"
+                 f"host:asr.tencentcloudapi.com\n\ncontent-type;host\n"
+                 f"{hashlib.sha256(payload_str.encode()).hexdigest()}")
+    string_to_sign = (f"TC3-HMAC-SHA256\n{timestamp}\n{credential_scope}\n"
+                      f"{hashlib.sha256(canonical.encode()).hexdigest()}")
+
+    def _hmac_sha256(key, msg):
+        return hmac.new(key, msg.encode(), hashlib.sha256).digest()
+
+    key = _hmac_sha256(("TC3" + secret_key).encode(), date)
+    key = _hmac_sha256(key, service)
+    key = _hmac_sha256(key, "tc3_request")
+    signature = hmac.new(key, string_to_sign.encode(), hashlib.sha256).hexdigest()
+    return signature, credential_scope
+
+
+# ── preload / unload ──
+
 def preload(cfg):
     engine = cfg["stt"]["engine"]
     if engine == "local":
@@ -65,8 +99,7 @@ def preload(cfg):
             log.error("[STT] 腾讯云 ASR 未配置 secret_id/secret_key，请编辑 config.yaml")
             sys.exit(1)
     elif engine == "remote":
-        remote = cfg["stt"].get("remote", {})
-        if not remote.get("api_key"):
+        if not cfg["stt"].get("remote", {}).get("api_key"):
             log.error("[STT] 远程 STT 未配置 api_key，请编辑 config.yaml")
             sys.exit(1)
     log.info(f"[STT] engine={engine}")
@@ -79,13 +112,15 @@ def unload():
         _model = None
 
 
+# ── transcribe ──
+
 def transcribe_local(wav_bytes, cfg):
     model = _get_model(cfg)
     local = cfg["stt"]["local"]
-    lang = local.get("language", "zh")
     words = [w for w in local.get("dictionary", []) if w]
     prompt = "，".join(words) if words else None
-    segments, _ = model.transcribe(io.BytesIO(wav_bytes), language=lang, initial_prompt=prompt)
+    segments, _ = model.transcribe(
+        io.BytesIO(wav_bytes), language=local.get("language", "zh"), initial_prompt=prompt)
     return "".join(s.text for s in segments).strip()
 
 
@@ -103,66 +138,31 @@ def transcribe_remote(wav_bytes, cfg):
 
 
 def transcribe_tencent(wav_bytes, cfg):
-    import base64
-    import hashlib
-    import hmac
-    import time as _time
-    from datetime import datetime, timezone
-
     tc = cfg["stt"]["tencent"]
-    secret_id = tc["secret_id"]
-    secret_key = tc["secret_key"]
-    engine = tc.get("engine_type", "16k_zh")
-
-    # 请求体
-    data_b64 = base64.b64encode(wav_bytes).decode()
     payload = {
-        "EngSerViceType": engine,
+        "EngSerViceType": tc.get("engine_type", "16k_zh"),
         "SourceType": 1,
         "VoiceFormat": "wav",
-        "Data": data_b64,
+        "Data": base64.b64encode(wav_bytes).decode(),
         "DataLen": len(wav_bytes),
     }
-    words = cfg["stt"].get("local", {}).get("dictionary", [])
+    words = [w for w in cfg["stt"].get("local", {}).get("dictionary", []) if w]
     if words:
-        hotwords = ",".join(f"{w}|10" for w in words if w)
-        if hotwords:
-            payload["HotwordList"] = hotwords
+        payload["HotwordList"] = ",".join(f"{w}|10" for w in words)
 
-    import json
     payload_str = json.dumps(payload)
-
-    # TC3 签名
-    service = "asr"
+    timestamp = int(time.time())
+    signature, scope = _tc3_sign(tc["secret_key"], payload_str, timestamp)
     host = "asr.tencentcloudapi.com"
-    action = "SentenceRecognition"
-    version = "2019-06-14"
-    timestamp = int(_time.time())
-    date = datetime.fromtimestamp(timestamp, tz=timezone.utc).strftime("%Y-%m-%d")
-
-    # 1. 拼接规范请求串
-    canonical = f"POST\n/\n\ncontent-type:application/json; charset=utf-8\nhost:{host}\n\ncontent-type;host\n{hashlib.sha256(payload_str.encode()).hexdigest()}"
-    # 2. 拼接待签名字符串
-    credential_scope = f"{date}/{service}/tc3_request"
-    string_to_sign = f"TC3-HMAC-SHA256\n{timestamp}\n{credential_scope}\n{hashlib.sha256(canonical.encode()).hexdigest()}"
-    # 3. 计算签名
-    def _hmac(key, msg):
-        return hmac.new(key, msg.encode(), hashlib.sha256).digest()
-    secret_date = _hmac(("TC3" + secret_key).encode(), date)
-    secret_service = _hmac(secret_date, service)
-    secret_signing = _hmac(secret_service, "tc3_request")
-    signature = hmac.new(secret_signing, string_to_sign.encode(), hashlib.sha256).hexdigest()
-
-    auth = f"TC3-HMAC-SHA256 Credential={secret_id}/{credential_scope}, SignedHeaders=content-type;host, Signature={signature}"
 
     resp = httpx.post(
         f"https://{host}",
         headers={
-            "Authorization": auth,
+            "Authorization": f"TC3-HMAC-SHA256 Credential={tc['secret_id']}/{scope}, SignedHeaders=content-type;host, Signature={signature}",
             "Content-Type": "application/json; charset=utf-8",
             "Host": host,
-            "X-TC-Action": action,
-            "X-TC-Version": version,
+            "X-TC-Action": "SentenceRecognition",
+            "X-TC-Version": "2019-06-14",
             "X-TC-Timestamp": str(timestamp),
         },
         content=payload_str,
@@ -172,31 +172,27 @@ def transcribe_tencent(wav_bytes, cfg):
     result = resp.json()
     if "Response" in result and "Result" in result["Response"]:
         return result["Response"]["Result"].strip()
-    error = result.get("Response", {}).get("Error", {})
-    raise RuntimeError(f"腾讯云ASR错误: {error.get('Code')} {error.get('Message')}")
+    err = result.get("Response", {}).get("Error", {})
+    raise RuntimeError(f"腾讯云ASR错误: {err.get('Code')} {err.get('Message')}")
+
+
+_TRANSCRIBERS = {"local": transcribe_local, "remote": transcribe_remote, "tencent": transcribe_tencent}
 
 
 def transcribe(wav_bytes, cfg):
-    import time
     if _is_silent(wav_bytes):
         log.info("[STT] 跳过静音")
         return ""
     t0 = time.perf_counter()
-    engine = cfg["stt"]["engine"]
+    fn = _TRANSCRIBERS[cfg["stt"]["engine"]]
     for attempt in range(2):
         try:
-            if engine == "remote":
-                text = transcribe_remote(wav_bytes, cfg)
-            elif engine == "tencent":
-                text = transcribe_tencent(wav_bytes, cfg)
-            else:
-                text = transcribe_local(wav_bytes, cfg)
+            text = fn(wav_bytes, cfg)
             break
         except (ConnectionError, OSError) as e:
             if attempt == 0:
                 log.info(f"[STT] 连接失败，重试: {e}")
                 continue
             raise
-    elapsed = time.perf_counter() - t0
-    log.info(f"[STT] ({elapsed:.2f}s) {text}")
+    log.info(f"[STT] ({time.perf_counter() - t0:.2f}s) {text}")
     return _fix_punct(_t2s.convert(text))
