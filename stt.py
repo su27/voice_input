@@ -1,7 +1,18 @@
 import logging
 import io
+import os
 import sys
+import importlib.util
 log = logging.getLogger("voice")
+
+if sys.platform == "win32":
+    for _pkg in ("nvidia.cublas", "nvidia.cudnn"):
+        _spec = importlib.util.find_spec(_pkg)
+        if _spec and _spec.submodule_search_locations:
+            _dll = os.path.join(list(_spec.submodule_search_locations)[0], "bin")
+            if os.path.isdir(_dll):
+                os.add_dll_directory(_dll)
+
 import wave
 import httpx
 import opencc
@@ -35,14 +46,6 @@ def _get_model(cfg):
         device = local.get("device", "cuda")
         model = local.get("model", "large-v3")
         log.info(f"[STT] 加载 {model} (device={device})...")
-        if sys.platform == "win32" and device == "cuda":
-            import os, importlib.util
-            for pkg in ("nvidia.cublas", "nvidia.cudnn"):
-                spec = importlib.util.find_spec(pkg)
-                if spec and spec.submodule_search_locations:
-                    dll_dir = os.path.join(list(spec.submodule_search_locations)[0], "bin")
-                    if os.path.isdir(dll_dir):
-                        os.add_dll_directory(dll_dir)
         from faster_whisper import WhisperModel
         _model = WhisperModel(model, device=device, compute_type="auto")
         log.info(f"[STT] 就绪 ({model}, {device})")
