@@ -36,10 +36,17 @@ def _detect_cuda():
     try:
         import ctranslate2
         if "cuda" in ctranslate2.get_supported_compute_types("cuda"):
-            log.info("[STT] CUDA 可用")
+            log.info("[STT] CUDA 可用 (ctranslate2)")
             return True
     except Exception as e:
-        log.info(f"[STT] CUDA 检测失败: {e}")
+        log.info(f"[STT] ctranslate2 CUDA 检测失败: {e}")
+    try:
+        import ctypes
+        ctypes.cdll.LoadLibrary("nvcuda.dll")
+        log.info("[STT] CUDA 可用 (nvcuda.dll)")
+        return True
+    except OSError:
+        pass
     return False
 
 
