@@ -98,10 +98,6 @@ def preload(cfg):
         if not tc.get("secret_id") or not tc.get("secret_key"):
             log.error("[STT] 腾讯云 ASR 未配置 secret_id/secret_key，请编辑 config.yaml")
             sys.exit(1)
-    elif engine == "remote":
-        if not cfg["stt"].get("remote", {}).get("api_key"):
-            log.error("[STT] 远程 STT 未配置 api_key，请编辑 config.yaml")
-            sys.exit(1)
     log.info(f"[STT] engine={engine}")
 
 
@@ -122,19 +118,6 @@ def transcribe_local(wav_bytes, cfg):
     segments, _ = model.transcribe(
         io.BytesIO(wav_bytes), language=local.get("language", "zh"), initial_prompt=prompt)
     return "".join(s.text for s in segments).strip()
-
-
-def transcribe_remote(wav_bytes, cfg):
-    remote = cfg["stt"]["remote"]
-    resp = httpx.post(
-        remote["api_url"],
-        headers={"Authorization": f"Bearer {remote['api_key']}"},
-        files={"file": ("audio.wav", wav_bytes, "audio/wav")},
-        data={"model": remote["model"], "language": cfg["stt"]["local"].get("language", "zh")},
-        timeout=30,
-    )
-    resp.raise_for_status()
-    return resp.json()["text"].strip()
 
 
 def transcribe_tencent(wav_bytes, cfg):
@@ -176,7 +159,7 @@ def transcribe_tencent(wav_bytes, cfg):
     raise RuntimeError(f"腾讯云ASR错误: {err.get('Code')} {err.get('Message')}")
 
 
-_TRANSCRIBERS = {"local": transcribe_local, "remote": transcribe_remote, "tencent": transcribe_tencent}
+_TRANSCRIBERS = {"local": transcribe_local, "tencent": transcribe_tencent}
 
 
 def transcribe(wav_bytes, cfg):

@@ -4,7 +4,7 @@ hotkey: ctrl_r  # 按住录音，松开结束。支持: ctrl_r, ctrl_l, alt_r, a
 command_hotkey: alt_r  # 按住录音，对剪贴板内容执行语音指令
 
 stt:
-  engine: local  # local / remote / tencent
+  engine: local  # local / tencent
   local:
     model: large-v3  # tiny/base/small/medium/large-v3
     device: cuda  # cpu / cuda
@@ -14,10 +14,6 @@ stt:
       - ""  # 在这里添加你的专有词汇，例如：
       # - "Kiro"
       # - "DeepSeek"
-  remote:
-    api_url: https://api.groq.com/openai/v1/audio/transcriptions
-    api_key: ""
-    model: whisper-large-v3
   tencent:
     secret_id: ""   # 腾讯云 SecretId
     secret_key: ""  # 腾讯云 SecretKey

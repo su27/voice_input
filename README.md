@@ -4,7 +4,7 @@
 
 ## 功能
 
-- **语音转文字**：本地 faster-whisper（GPU 加速）/ 腾讯云 ASR / 远程 OpenAI 兼容 API
+- **语音转文字**：本地 faster-whisper（GPU 加速）/ 腾讯云 ASR
 - **LLM 润色**：支持 OpenAI 兼容 API（DeepSeek 等），按窗口自动切换策略
 - **语音指令**：选中文本后按热键说话，对选中内容执行操作（翻译、格式化等）
 - **语音转 bash**：按住右 Alt 说自然语言，自动转为 bash 命令
@@ -47,9 +47,6 @@
 |------|------|----------|
 | `local` | 本地 faster-whisper | 有 NVIDIA GPU 的 Windows |
 | `tencent` | 腾讯云一句话识别 | 无 GPU / macOS / 低延迟 |
-| `remote` | OpenAI 兼容 API（Groq 等） | 备选 |
-
-`engine: local` + `device: auto` + `model: auto` 时自动检测：有 CUDA 用 `large-v3`，无则回退腾讯云。
 
 ## 热键
 
@@ -83,7 +80,7 @@
 | 配置 | 说明 |
 |------|------|
 | `hotkey` | 语音输入热键，默认 `ctrl_r` |
-| `stt.engine` | `local` / `tencent` / `remote` |
+| `stt.engine` | `local` / `tencent` |
 | `stt.tencent.secret_id/secret_key` | 腾讯云密钥 |
 | `llm.enabled` | 是否启用 LLM 润色 |
 | `llm.api_url` | OpenAI 兼容 API 地址 |
