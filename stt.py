@@ -172,7 +172,7 @@ def transcribe(wav_bytes, cfg):
         try:
             text = fn(wav_bytes, cfg)
             break
-        except (ConnectionError, OSError) as e:
+        except (httpx.ConnectError, httpx.TimeoutException) as e:
             if attempt == 0:
                 log.info(f"[STT] 连接失败，重试: {e}")
                 continue

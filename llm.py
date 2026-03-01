@@ -79,7 +79,7 @@ def polish(text, cfg, selected_text=None, force_profile=None, window_title=""):
                 )
                 resp.raise_for_status()
                 break
-            except (ConnectionError, OSError) as e:
+            except (httpx.ConnectError, httpx.TimeoutException) as e:
                 if attempt == 0:
                     log.info(f"[LLM] 连接失败，重试: {e}")
                     _client = httpx.Client(timeout=60)

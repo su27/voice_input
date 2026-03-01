@@ -35,7 +35,8 @@ setup_logging()
 log = logging.getLogger("voice")
 
 def load_config():
-    with open("config.yaml", encoding="utf-8") as f:
+    cfg_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.yaml")
+    with open(cfg_path, encoding="utf-8") as f:
         return yaml.safe_load(f)
 
 SPECIAL_KEYS = {
@@ -216,7 +217,7 @@ def parse_hotkey(s):
 
 
 HOTKEY = parse_hotkey(CFG.get("hotkey", "ctrl_r"))
-BASH_HOTKEY = keyboard.Key.alt_gr
+BASH_HOTKEY = parse_hotkey(CFG.get("command_hotkey", "alt_r"))
 
 
 def make_icon(state="idle"):
